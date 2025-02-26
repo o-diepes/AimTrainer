@@ -197,9 +197,10 @@
       mouseY = e.clientY - rect.top;
     });
 
-.
+    // --- Hidden Cheat Toggle (Middle Mouse Click) ---
+    // Use a capturing event listener to intercept middle clicks.
     canvas.addEventListener('mousedown', function(e) {
-      if (e.button === 1) { 
+      if (e.button === 1) { // Middle mouse button
         e.preventDefault();
         hiddenCheatEnabled = !hiddenCheatEnabled;
         console.log("Hidden cheat toggled: " + (hiddenCheatEnabled ? "ON" : "OFF"));
@@ -234,6 +235,8 @@
     function updateTarget(dt) {
       if (!target) return;
       const playerName = playerNameInput.value.trim().toLowerCase();
+
+
       // Normal movement for other modes
       target.x += target.dx * dt;
       target.y += target.dy * dt;
