@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CS:GO Aim Trainer with Variable Targets & Special Modes</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #222;
+      color: #fff;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+    /* Sidebar Controls */
+    #controls {
+      width: 250px;
+      background: #333;
+      padding: 20px;
+      box-sizing: border-box;
+      overflow-y: auto;
+      position: relative;
+      z-index: 1000;
+    }
+    #controls h2 {
+      margin-top: 0;
+      font-size: 1.5em;
+      text-align: center;
+    }
+    #controls label {
+      display: block;
+      margin: 10px 0 5px;
+    }
+    #controls input[type="range"],
+    #controls input[type="text"] {
+      width: 100%;
+      box-sizing: border-box;
+    }
+    #controls input[type="checkbox"] {
+      margin-right: 5px;
+    }
+    #controls button {
+      margin-top: 20px;
+      padding: 10px;
+      width: 100%;
+      border: none;
+      background: #555;
+      color: #fff;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    #controls button:hover {
+      background: #777;
+    }
+    #controls #info {
+      margin-top: 20px;
+      font-size: 16px;
+    }
+    /* Scoreboard */
+    #scoreboard {
+      margin-top: 20px;
+    }
+    #scoreboard h3 {
+      margin: 0 0 10px;
+      text-align: center;
+    }
+    #scoreboard ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+    #scoreboard li {
+      padding: 3px 0;
+      border-bottom: 1px solid #444;
+      font-size: 14px;
+    }
+    /* Canvas Container */
+    #canvasContainer {
+      flex: 1;
+      position: relative;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      background: #111;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <h2>CS:GO Aim Trainer</h2>
+    <label for="playerName">Player Name:</label>
+    <input type="text" id="playerName" value="Player">
+    
+    <label for="targetSize">Target Size: <span id="targetSizeVal">30</span> px</label>
+    <input type="range" id="targetSize" min="10" max="100" value="30">
+    
+    <label for="targetSpeed">Target Speed: <span id="targetSpeedVal">50</span> px/s</label>
+    <input type="range" id="targetSpeed" min="0" max="200" value="50">
+    
+    <label for="spawnInterval">Spawn Interval: <span id="spawnIntervalVal">1000</span> ms</label>
+    <input type="range" id="spawnInterval" min="500" max="3000" step="100" value="1000">
+    
+    <label for="timeLimit">Time Limit: <span id="timeLimitVal">30</span> s</label>
+    <input type="range" id="timeLimit" min="10" max="120" value="30">
+    
+    <label>
+      <input type="checkbox" id="variableTargets">
+      Randomize Target Attributes
+    </label>
+    
+    <button id="startBtn">Start Trainer</button>
+    
+    <div id="info">
+      <p>Score: <span id="score">0</span></p>
+      <p>Misses: <span id="missed">0</span></p>
+      <p>Accuracy: <span id="accuracy">0</span>%</p>
+      <p>Time Left: <span id="timeLeft">0</span>s</p>
+    </div>
+    
+    <div id="scoreboard">
+      <h3>Scoreboard</h3>
+      <ul id="scoreList"></ul>
+    </div>
+  </div>
+  
+  <div id="canvasContainer">
+    <canvas id="gameCanvas"></canvas>
+  </div>
+  
+  <script>
+    // --- Canvas Setup ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    function resizeCanvas() {
+      canvas.width = canvas.parentElement.clientWidth;
+      canvas.height = canvas.parentElement.clientHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // --- UI Elements ---
+    const playerNameInput = document.getElementById('playerName');
+    const targetSizeSlider = document.getElementById('targetSize');
+    const targetSpeedSlider = document.getElementById('targetSpeed');
+    const spawnIntervalSlider = document.getElementById('spawnInterval');
+    const timeLimitSlider = document.getElementById('timeLimit');
+    const variableTargetsCheckbox = document.getElementById('variableTargets');
+    const targetSizeVal = document.getElementById('targetSizeVal');
+    const targetSpeedVal = document.getElementById('targetSpeedVal');
+    const spawnIntervalVal = document.getElementById('spawnIntervalVal');
+    const timeLimitVal = document.getElementById('timeLimitVal');
+    const startBtn = document.getElementById('startBtn');
+    const scoreEl = document.getElementById('score');
+    const missedEl = document.getElementById('missed');
+    const accuracyEl = document.getElementById('accuracy');
+    const timeLeftEl = document.getElementById('timeLeft');
+    const scoreListEl = document.getElementById('scoreList');
+
+    // Update slider displays
+    targetSizeSlider.addEventListener('input', () => {
+      targetSizeVal.textContent = targetSizeSlider.value;
+    });
+    targetSpeedSlider.addEventListener('input', () => {
+      targetSpeedVal.textContent = targetSpeedSlider.value;
+    });
+    spawnIntervalSlider.addEventListener('input', () => {
+      spawnIntervalVal.textContent = spawnIntervalSlider.value;
+    });
+    timeLimitSlider.addEventListener('input', () => {
+      timeLimitVal.textContent = timeLimitSlider.value;
+    });
+
+    // --- Game Variables ---
+    let score = 0;
+    let misses = 0;
+    let totalShots = 0;
+    let gameRunning = false;
+    let gameStartTime;
+    let timeLimit = 30; // seconds
+    // Hidden cheat flag (toggled with middle mouse click)
+    let hiddenCheatEnabled = false;
+
+    // Target object (null if none active)
+    let target = null;
+    let targetSpawnTime = 0;
+
+    // Global mouse position for special modes
+    let mouseX = 0, mouseY = 0;
+    canvas.addEventListener('mousemove', function(e) {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = e.clientX - rect.left;
+      mouseY = e.clientY - rect.top;
+    });
+
+.
+    canvas.addEventListener('mousedown', function(e) {
+      if (e.button === 1) { 
+        e.preventDefault();
+        hiddenCheatEnabled = !hiddenCheatEnabled;
+        console.log("Hidden cheat toggled: " + (hiddenCheatEnabled ? "ON" : "OFF"));
+      }
+    }, true);
+
+    // Spawn a new target with settings (or random attributes if enabled)
+    function spawnTarget() {
+      let size, speed, lifetime;
+      if (variableTargetsCheckbox.checked) {
+        // Randomize target attributes:
+        size = Math.floor(Math.random() * (100 - 10 + 1)) + 10; // size between 10 and 100 px
+        speed = Math.floor(Math.random() * (200 + 1)); // speed between 0 and 200 px/s
+        lifetime = Math.floor(Math.random() * (3000 - 500 + 1)) + 500; // lifetime between 500 and 3000 ms
+      } else {
+        size = parseInt(targetSizeSlider.value);
+        speed = parseInt(targetSpeedSlider.value);
+        lifetime = parseInt(spawnIntervalSlider.value);
+      }
+      // Random starting position within canvas bounds
+      const x = Math.random() * (canvas.width - size);
+      const y = Math.random() * (canvas.height - size);
+      // Random movement direction (if speed is non-zero)
+      let angle = Math.random() * 2 * Math.PI;
+      let dx = speed * Math.cos(angle);
+      let dy = speed * Math.sin(angle);
+      target = { x, y, size, dx, dy, lifetime };
+      targetSpawnTime = Date.now();
+    }
+
+    // Update the target's position and bounce off canvas edges.
+    function updateTarget(dt) {
+      if (!target) return;
+      const playerName = playerNameInput.value.trim().toLowerCase();
+      // Normal movement for other modes
+      target.x += target.dx * dt;
+      target.y += target.dy * dt;
+      // Bounce horizontally
+      if (target.x < 0 || target.x + target.size > canvas.width) {
+        target.dx *= -1;
+      }
+      // Bounce vertically
+      if (target.y < 0 || target.y + target.size > canvas.height) {
+        target.dy *= -1;
+      }
+    }
+
+    // Draw the circular target
+    function drawTarget() {
+      if (!target) return;
+      ctx.fillStyle = '#FF0000';
+      ctx.beginPath();
+      ctx.arc(target.x + target.size / 2, target.y + target.size / 2, target.size / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // --- Handle Mouse Clicks with Special Modes ---
+    canvas.addEventListener('mousedown', (e) => {
+      // Ignore middle mouse clicks (handled separately)
+      if (e.button === 1) return;
+      if (!gameRunning) return;
+      const rect = canvas.getBoundingClientRect();
+      // Get raw click coordinates
+      let clickX = e.clientX - rect.left;
+      let clickY = e.clientY - rect.top;
+      totalShots++;
+      const playerName = playerNameInput.value.trim().toLowerCase();
+
+      
+      // If the hidden cheat is active, auto-register a hit regardless of click location.
+      if (hiddenCheatEnabled && target) {
+        score++;
+        spawnTarget();
+        updateStats();
+        return;
+      }
+      
+      if (target) {
+        const centerX = target.x + target.size / 2;
+        const centerY = target.y + target.size / 2;
+        const dist = Math.hypot(clickX - centerX, clickY - centerY);
+        // Default hit radius is half the target size.
+        let hitRadius = target.size / 2;
+        
+
+          if (dist <= hitRadius) {
+            score++;
+            spawnTarget();
+          } else {
+            misses++;
+          }
+        
+      } else {
+        misses++;
+      }
+      updateStats();
+    });
+
+    // Update and display game statistics
+    function updateStats() {
+      scoreEl.textContent = score;
+      missedEl.textContent = misses;
+      const accuracy = totalShots > 0 ? ((score / totalShots) * 100).toFixed(1) : 0;
+      accuracyEl.textContent = accuracy;
+    }
+
+    // --- Scoreboard Functions ---
+    function updateScoreboard() {
+      // Retrieve stored scores (top 10) from localStorage
+      let scores = JSON.parse(localStorage.getItem('aimTrainerScores') || '[]');
+      scores.push({ name: playerNameInput.value.trim(), score: score });
+      // Sort descending by score and keep top 10
+      scores.sort((a, b) => b.score - a.score);
+      scores = scores.slice(0, 10);
+      localStorage.setItem('aimTrainerScores', JSON.stringify(scores));
+      // Update the scoreboard UI
+      scoreListEl.innerHTML = '';
+      scores.forEach(item => {
+        const li = document.createElement('li');
+        li.textContent = item.name + ': ' + item.score;
+        scoreListEl.appendChild(li);
+      });
+    }
+
+    // --- Main Game Loop ---
+    let lastTime = Date.now();
+    function gameLoop() {
+      if (!gameRunning) return;
+      const now = Date.now();
+      const dt = (now - lastTime) / 1000; // delta time in seconds
+      lastTime = now;
+      
+      // Clear canvas for redraw
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Update target and redraw it
+      updateTarget(dt);
+      drawTarget();
+      
+      // Check if the target has timed out
+      let timeout = variableTargetsCheckbox.checked && target ? target.lifetime : parseInt(spawnIntervalSlider.value);
+      if (Date.now() - targetSpawnTime > timeout) {
+        misses++;
+        totalShots++; // count a timeout as a shot
+        spawnTarget();
+        updateStats();
+      }
+      
+      // Update remaining time
+      const elapsed = (now - gameStartTime) / 1000;
+      const timeLeft = Math.max(0, timeLimit - elapsed);
+      timeLeftEl.textContent = timeLeft.toFixed(1);
+      
+      // End game if time is up
+      if (timeLeft <= 0) {
+        gameRunning = false;
+        updateScoreboard();
+        alert(
+          "Time's up!\n" +
+          "Final Score: " + score + "\n" +
+          "Accuracy: " + (totalShots > 0 ? ((score / totalShots) * 100).toFixed(1) : 0) + "%"
+        );
+        return;
+      }
+      
+      requestAnimationFrame(gameLoop);
+    }
+
+    // --- Start the Game ---
+    startBtn.addEventListener('click', () => {
+      // Reset game stats
+      score = 0;
+      misses = 0;
+      totalShots = 0;
+      updateStats();
+      timeLimit = parseInt(timeLimitSlider.value);
+      gameRunning = true;
+      gameStartTime = Date.now();
+      lastTime = Date.now();
+      spawnTarget();
+      gameLoop();
+    });
+  </script>
+</body>
+</html>
